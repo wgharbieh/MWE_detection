@@ -1,0 +1,50 @@
+import skipthoughts
+import ujson
+
+PATH = '/home/waseem/Downloads/dimsum-data-1.5/'
+test = 0
+
+def write_vectors(path, vectors):
+    output_file = open(path, 'w')
+    for index in range(0, vectors.__len__()):
+        for index2 in range(0, vectors[index].__len__()):
+            output_file.write(str(vectors[index][index2]) + '\t')
+        output_file.write('\n')
+    output_file.close()
+
+
+if __name__ == '__main__':
+    model = skipthoughts.load_model()
+    #for i in range(1,6):
+    #    for j in range(1,6):
+    FILE = 'fold_test'
+    input_file = open(PATH+FILE)
+    line = input_file.readline()
+    token_arr = []
+    lemma_arr = []
+    all_tokens = []
+    all_lemmas = []
+    while line != '':
+        if line != '\n':
+            k = line.split('\t')
+            token = k[1]
+            lemma = k[2]
+            token_arr.append(token)
+            lemma_arr.append(lemma)
+            line = input_file.readline()
+        else:
+            all_tokens.append(' '.join(token_arr))
+            all_lemmas.append(' '.join(lemma_arr))
+            token_arr = []
+            lemma_arr = []
+            line = input_file.readline()
+    token_vectors = skipthoughts.encode(model, all_tokens, verbose=False)
+    lemma_vectors = skipthoughts.encode(model, all_lemmas, verbose=False)
+    print "For token vectors:"
+    print token_vectors.__len__()
+    print "For lemma vectors:"
+    print lemma_vectors.__len__()
+    write_vectors(PATH + "tokens/" + FILE + "_vectors", token_vectors)
+    write_vectors(PATH + "lemmas/" + FILE + "_vectors", lemma_vectors)
+    print 'Done writing to file!!'
+    print "Program finished"
