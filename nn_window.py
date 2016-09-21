@@ -10,8 +10,13 @@ import extract_mwes
 import sys
 import features
 import skipthoughts
+import operator
+import error_analysis
 
-WINDOW = 2
+WINDOW = 1
+POS_WINDOW = 2
+TAG_WINDOW = 0
+MWE_WINDOW = 2
 DIM = 100
 embedding_window = 5
 tag_features = 0
@@ -25,53 +30,71 @@ tag_distribution = 0
 ngram = 3
 rho = 50
 cost_function = 'sce' #sce
-#hidden = [(400,'tanh'),(10,'tanh'),(6,'soft')] # 400, 50 = 64.6%
-hidden = [(400,'tanh'),(6,'soft')]
+#hidden = [(200,'tanh'),(50,'tanh'),(6,'soft')] # 400 relu, 100 tanh = 61.2%; 400 relu, 100 relu = <60%
+hidden = [(440,'tanh'),(6,'soft')]
+#hidden = None
 test = 0
-max_iter = 1000
+max_iter = 600000
 reg = 1e10
-sentence_embedding = 1
+sentence_embedding = 0
 learning_rate = 1e-2
-gen_vec = 1
+gen_vec = 0
+unk = 0
 remove_target = 0
 normalize = 0
-sample = 1
+sample = 0
+batch_size = 0
+uni_skip = 0
+bi_skip = 0
+Google_vecs = 0
 
 
-# WINDOW = sys.argv[1]
-# DIM = sys.argv[2]
-# embedding_window = sys.argv[3] #4
-# tag_features = int(sys.argv[4])
-# lemma_features = int(sys.argv[5])
-# pos_features = int(sys.argv[6])
-# context = int(sys.argv[7])
-# binary_transitions = int(sys.argv[8])
-# in_mwe = int(sys.argv[9])
-# tag_distribution = int(sys.argv[10])
-# ngram = int(sys.argv[11])
-# rho = int(sys.argv[12])
-# cost_function = sys.argv[13] #sce
-# hidden = [(int(sys.argv[14]),'tanh'),(6,'soft')]
-# test = int(sys.argv[15])
-# max_iter = int(sys.argv[16])
-# sentence_embedding = 1
-# learning_rate = 1e-2
-# gen_vec = int(sys.argv[17])
-# remove_target = int(sys.argv[18])
-# normalize = int(sys.argv[19])
+def parse_input(x):
+    if x.__contains__(','):
+        k = x.split(',')
+        y = ''.join(k)
+        return tuple(y)
+    return int(x)
 
-con_win = 5 # 3 = 65.7%, 5 = 66.4%
+
+WINDOW = parse_input(sys.argv[1])
+POS_WINDOW = parse_input(sys.argv[2])
+TAG_WINDOW = parse_input(sys.argv[3])
+MWE_WINDOW = parse_input(sys.argv[4])
+DIM = int(sys.argv[5])
+embedding_window = int(sys.argv[6]) #4
+tag_features = int(sys.argv[7])
+lemma_features = int(sys.argv[8])
+pos_features = int(sys.argv[9])
+context = int(sys.argv[10])
+#binary_transitions = int(sys.argv[8])
+in_mwe = int(sys.argv[11])
+#tag_distribution = int(sys.argv[10])
+ngram = int(sys.argv[12])
+rho = int(sys.argv[13])
+cost_function = sys.argv[14] #sce
+hidden = [(int(sys.argv[15]),'tanh'),(6,'soft')]
+test = int(sys.argv[16])
+max_iter = int(sys.argv[17])
+sentence_embedding = 0
+learning_rate = 1e-2
+#gen_vec = int(sys.argv[17])
+remove_target = int(sys.argv[18])
+normalize = int(sys.argv[19])
+con_win = int(sys.argv[20]) # 3 = 65.7%, 5 = 66.4%
 avg_tokens = 1
 avg_lemmas = 1
 WORD2VEC = "Word2Vec_" + str(DIM) + "d_" + str(embedding_window) + "window_15mincount_5nsampling_skipgram.bin"
 WORD2VEC2 = "wikiEmbeddingsStanfordTokenizedSkipGram" + str(embedding_window) + "-dimension" + str(DIM) + "vectors.bin"
 WORD2VEC_PATH = "/home/waseem/models/"
 PATH = "/home/waseem/Downloads/dimsum-data-1.5/"
+TOKENS_PATH = PATH + 'tokens/'
+LEMMAS_PATH = PATH + 'lemmas/'
 splits = 5
 num = 5
 repetitions = 1
  #400
-resolution = 10
+resolution = 100
 
 #batch_size = 50000
 debug_features = 0
@@ -97,6 +120,7 @@ emission_arr = []
 start_tag = 'start'
 end_tag = 'end'
 tag_set = ['B', 'I', 'O', 'b', 'i', 'o']
+#tag_set = ['B', 'I', 'O']
 
 
 def weight_variable(shape):
@@ -505,9 +529,10 @@ def confusion_matrix(gold, prediction):
     #print "prediction_tags: " + str(prediction)
     gold_sequence = get_graph(gold)
     pred_sequence = get_graph(prediction)
+    stats = error_analysis.confusion_stats(gold, prediction, tag_set)
     tp1, fp = equate_graphs(gold_sequence, pred_sequence)
     tp2, fn = equate_graphs(pred_sequence, gold_sequence)
-    return tp1, tp2, fp, fn
+    return tp1, tp2, fp, fn, stats
 
 
 def div(x,y):
@@ -570,19 +595,23 @@ def display_features(feature):
             e += 20
             print "tag_distribution " + str(feature[s:e])
 
-def get_pred(test_file,validation_features,sess,x,W,b,y):
+def get_pred(test_file,validation_features,sess,x,W,b,y,model = None,final = 0):
     predictions = []
     gold_sequence = []
     sentences = 0
     inside = 0
     keep_track = open(test_file)
     line = keep_track.readline()
+    analyze = 0
+    if final == 1:
+        analyze = open(test_file + ".FA", 'w')
     j = 0
     tp1 = 0
     tp2 = 0
     fp = 0
     fn = 0
     count = 0
+    global_matrix = np.zeros([tag_set.__len__(), tag_set.__len__()])
     sequence = []
     factor = DIM
     if tag_features == 1:
@@ -591,8 +620,32 @@ def get_pred(test_file,validation_features,sess,x,W,b,y):
         factor += DIM
     if pos_features == 1:
         factor += pos_tags[0].__len__()
+    line_by_line = []
+    token_arr = []
+    lemma_arr = []
+    pos_arr = []
     while line != '':
         if line != '\n':
+            k = line.split('\t')
+            token = k[1]
+            model_token = "N/A"
+            if model.__contains__(token):
+                model_token = token
+            elif model.__contains__(token.lower()):
+                model_token = token.lower()
+            token_arr.append(model_token)
+            lemma = k[2]
+            model_lemma = "N/A"
+            if model.__contains__(lemma):
+                model_lemma = lemma
+            elif model.__contains__(lemma.lower()):
+                model_lemma = lemma.lower()
+            lemma_arr.append(model_lemma)
+            pos = k[3]
+            pos_arr.append(pos)
+            tag = k[4]
+            line_arr = [k[0], k[1], model_token, k[2], model_lemma, k[3], k[4]]
+            line_by_line.append(line_arr)
             pred = sess.run(y,feed_dict={x:[validation_features[j]]})
             cl = np.zeros(pred[0].__len__())
             if tag_features == 1:
@@ -644,35 +697,63 @@ def get_pred(test_file,validation_features,sess,x,W,b,y):
             sentences += 1
             inside = 0
             max_predictions = Viterbi(sequence, tag_set, emission_arr[0])
+            #print "max_predictions: " + str(max_predictions)
             predictions += max_predictions
             #print "gold_sequence: " + str(gold_sequence)
             #print "sequence: " + str(sequence)
-            temp_tp1, temp_tp2, temp_fp, temp_fn = confusion_matrix(gold_sequence, max_predictions)
+            temp_tp1, temp_tp2, temp_fp, temp_fn, temp_stats = confusion_matrix(gold_sequence, max_predictions)
+            pr = div(temp_tp1, temp_tp1 + temp_fp)
+            assert pr <= 1
+            re = div(temp_tp2, temp_tp2 + temp_fn)
+            assert re <= 1
+            if final == 1 and pr != 1 and re != 1 and (temp_tp1 + temp_fp + temp_tp2 + temp_fn) != 0:
+                for iteration in range(0,max_predictions.__len__()):
+                    line_by_line[iteration].append(max_predictions[iteration])
+                    analyze.write('\t'.join(line_by_line[iteration]))
+                    analyze.write(('\n'))
+                analyze.write('\n')
             tp1 += temp_tp1
             tp2 += temp_tp2
             fp += temp_fp
             fn += temp_fn
+            global_matrix = np.add(global_matrix,temp_stats)
             #print predictions
             sequence = []
             gold_sequence = []
+            line_by_line = []
         line = keep_track.readline()
+    if final == 1:
+        analyze.close()
     keep_track.close()
     precision = div(tp1,tp1+fp)
     recall = div(tp2,tp2 + fn)
     fscore = get_fscore(precision,recall)
     acc_val = fscore
     train_criteria = get_stats(predictions)
+    #error_analysis.error_stats([token_arr, lemma_arr, pos_arr],[10,10,10],validation_labels, predictions, tag_set)
+    #error_analysis.stats_by_percentage([token_arr, lemma_arr, pos_arr],[10,10,10],[10,10,10],validation_labels, predictions, tag_set)
+    word_features = ['cap','anycap','upper','alpha','num','nonchar','http']
+    error_analysis.word_stats_by_percentage([token_arr, lemma_arr],[10,10],[10,10],word_features,validation_labels, predictions, tag_set)
     if predictions.__len__() != validation_labels.__len__():
-        print "They are not equal!!!"
+        print "Predictions and labels are not equal!!!"
     print train_criteria
     #if train_criteria.has_key('B'):
     #    if train_criteria['B'] >= 120:
     #        break
     #print acc_train
-    return acc_val, predictions
+    return tp1, fp, tp2, fn, acc_val, predictions, global_matrix
+
+def summary_statement(ii, acc_train, acc_val, tp1, fp, tp2, fn, matrix):
+    print str(ii) + ": " + " training: " + str(acc_train) + " validation: " + str(acc_val)
+    print str(ii) + ": " + " precision: " + str(tp1) + "/" + str(tp1+fp) + " = " + str(div(tp1,tp1+fp)) +\
+    "\t" + " recall: " + str(tp2) + "/" + str(tp2+fn) + " = " + str(div(tp2,tp2+fn))
+    print '\t\t' + '\t\t'.join(tag_set)
+    np.set_printoptions(suppress=True)
+    #np.set_printoptions(precision=3)
+    print matrix
 
 
-def train_NN(training_features,training_labels, validation_features, validation_labels, classes, cost_fun, alpha, stop, predict, rho, test_file, hidden = None):
+def train_NN(training_features,training_labels, validation_features, validation_labels, classes, cost_fun, alpha, stop, predict, rho, batch_size, test_file, model = None, hidden = None):
     acc_train = 0
     acc_val = 0
     input_size = training_features[0].__len__()
@@ -799,12 +880,27 @@ def train_NN(training_features,training_labels, validation_features, validation_
         #experiment = sess.run(cross_entropy, feed_dict={x: validation_features[:2], y_: validation_labels[:2]})
         #print "CE value: " + str(experiment)
     elif cost_fun == 'sce':
-        part1 = tf.slice(y_,[0,0],[-1,1])
+        #start = 15
+        #end = 20
+        #print [validation_labels[start:end]]
+        #print str(sess.run(y,feed_dict={x:validation_features[start:end]}))
+        part1a = tf.slice(y_,[0,0],[-1,1])
+        #print "part1a: " + str(sess.run(part1a, feed_dict={y_:validation_labels[start:end]}))
+        #part1b = tf.slice(y_, [0, 3], [-1, 3])
+        #print "part1b: " + str(sess.run(part1b, feed_dict={y_: validation_labels[start:end]}))
         part2 = tf.slice(y,[0,2],[-1,1])
-        AND = tf.reshape(tf.mul(part1,part2), [-1])
+        #print "part2: " + str(sess.run(part2, feed_dict={x: validation_features[start:end]}))
+        AND1 = tf.reduce_sum(tf.mul(part1a,part2), reduction_indices=1)
+        #print "AND1: " + str(sess.run(AND1, feed_dict={x: validation_features[start:end], y_: validation_labels[start:end]}))
+        #AND2 = tf.reduce_sum(tf.mul(part1b, part2), reduction_indices=1)
+        #print "AND2: " + str(sess.run(AND2, feed_dict={x: validation_features[start:end], y_: validation_labels[start:end]}))
         eq = tf.nn.softmax_cross_entropy_with_logits(intermediate,y_)
-        ADD = tf.add(eq,rho*AND)
+        #print "eq: " + str(sess.run(eq, feed_dict={x: validation_features[start:end], y_: validation_labels[start:end]}))
+        #ADD = tf.add(eq,rho*(AND1 + AND2))
+        ADD = tf.add(eq, rho * (AND1))
+        #print "ADD: " + str(sess.run(ADD, feed_dict={x: validation_features[start:end], y_: validation_labels[start:end]}))
         cross_entropy = tf.reduce_mean(ADD)
+        #print "cross_entropy: " + str(sess.run(cross_entropy, feed_dict={x: validation_features[start:end], y_: validation_labels[start:end]}))
     elif cost_fun == 'sce2':
         print [validation_labels[:2]]
         print str(sess.run(y,feed_dict={x:validation_features[:2]}))
@@ -848,16 +944,26 @@ def train_NN(training_features,training_labels, validation_features, validation_
     # function to minimize, the [1] indicates that the summation is done on the 2nd dimension
     #train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
     train_step = tf.train.AdamOptimizer(alpha).minimize(cross_entropy)
+    #train_step = tf.train.AdadeltaOptimizer(alpha).minimize(cross_entropy)
+    #train_step = tf.train.AdagradOptimizer(alpha).minimize(cross_entropy)
+    #train_step = tf.train.GradientDescentOptimizer(alpha).minimize(cross_entropy)
     init = tf.initialize_all_variables()
     sess = tf.Session()
     sess.run(init)
     scores3_train = np.zeros(max_iter)
     scores3_val = np.zeros(max_iter)
+    validation_scores = []
+    target_score = 0
+    acc_val = 0
     if pretrained == 0:
-        for ii in range(0,stop):
+        ii = 0
+        while ii < stop:
             #Training for 1000 iterations
-            #batch = random.randint(0,training_features.__len__() - batch_size - 1)
-            batch_xs, batch_ys = training_features, training_labels
+            if batch_size > 0:
+                batch = random.randint(0,training_features.__len__() - batch_size - 1)
+                batch_xs, batch_ys = training_features[batch: batch + batch_size], training_labels[batch: batch + batch_size]
+            else:
+                batch_xs, batch_ys = training_features, training_labels
             assert training_features.__len__() == training_labels.__len__()
             reference = training_features[0].__len__()
             #print reference
@@ -866,7 +972,7 @@ def train_NN(training_features,training_labels, validation_features, validation_
                     print "element " + str(iii) + " is not equal"
                     #print str(training_features[iii]) + ", the reference is " + str(training_features[0])
                     print str(training_features[iii].__len__()) + " instead of " + str(reference)
-                    display_features(training_features[iii])
+                    #display_features(training_features[iii])
             #A batch of 100 random data points is chosen from the training set
             #sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys, keep_prob: 0.5})
             sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
@@ -880,17 +986,28 @@ def train_NN(training_features,training_labels, validation_features, validation_
                 #Find the mean of the boolean predictions
                 #acc_train = sess.run(cross_entropy, feed_dict={x: batch_xs, y_: batch_ys, keep_prob: 1.0})
                 acc_train = sess.run(cross_entropy, feed_dict={x: batch_xs, y_: batch_ys})
-                acc_val, predictions = get_pred(test_file,validation_features,sess,x,W,b,y)
-                print str(ii) + ": " + " training: " + str(acc_train) + " validation: " + str(acc_val)
-            scores3_train[ii] += acc_train*100
-            scores3_val[ii] += acc_val*100
+                tp1, fp, tp2, fn, acc_val, predictions, matrix = get_pred(test_file,validation_features,sess,x,W,b,y, model)
+                summary_statement(ii, acc_train, acc_val, tp1, fp, tp2, fn, matrix)
+                validation_scores.append(acc_val)
+                target_score = np.max(validation_scores)
+            if ii == stop - 1:
+                tp1, fp, tp2, fn, acc_val, predictions, matrix = get_pred(test_file, validation_features, sess, x, W, b, y, model)
+                if acc_val < target_score - 0.02:
+                    stop += 10
+            if ii < scores3_train.__len__():
+                scores3_train[ii] += acc_train*100
+                scores3_val[ii] += acc_val*100
+            ii += 1
     if predict == 1:
         if pretrained == 1:
             with open(PATH + pretrained_file) as f:
                 feats = ujson.load(f)
         t1 = datetime.datetime.now()
         print "Starting predictions..."
-        acc_val, predictions = get_pred(test_file,validation_features,sess,x,W,b,y)
+        tp1, fp, tp2, fn, acc_val, predictions, matrix = get_pred(test_file,validation_features,sess,x,W,b,y, model, 1)
+        if acc_val < np.max(validation_scores) - 2:
+            acc_val = np.max(validation_scores)
+        summary_statement("Final", acc_train, acc_val, tp1, fp, tp2, fn, matrix)
         t2 = datetime.datetime.now()
         print "Predictions complete!!!"
         print "It took " + str(t2-t1) + " to complete the evaluation"
@@ -911,12 +1028,19 @@ if __name__ == '__main__':
     index2 = WORD2VEC.find('d',index1)
     DIM = int(WORD2VEC[index1+1:index2])
     print "Loading model...."
-    try:
-        model = gensim.models.Word2Vec.load(WORD2VEC_PATH + WORD2VEC)
-    except:
-        model = gensim.models.Word2Vec.load(WORD2VEC_PATH + WORD2VEC2)
+    if Google_vecs == 1:
+        DIM = 300
+        model = gensim.models.Word2Vec.load_word2vec_format(WORD2VEC_PATH + 'GoogleNews-vectors-negative300.bin.gz',
+                                                            binary=True)
+        print "GoogleNews-vectors loaded!!!"
+    else:
+        try:
+            model = gensim.models.Word2Vec.load(WORD2VEC_PATH + WORD2VEC)
+            print "Model loaded!!!"
+        except:
+            model = gensim.models.Word2Vec.load(WORD2VEC_PATH + WORD2VEC2)
+            print "Model loaded!!!"
         #gensim.models.Word2Vec.
-    print "Model loaded!!!"
     scores1_train = np.zeros([num,max_iter])
     scores1_val = np.zeros([num,max_iter])
     index = range(1,max_iter+1)
@@ -932,45 +1056,53 @@ if __name__ == '__main__':
         flag2 = 0
         flag2_error = 0
         for j in range(0,splits):
-            print "Extracting training data..."
             if test == 1:
-                training_features, training_labels = features.nn_features(PATH + "dimsum16.train",int(WINDOW),DIM,
-                tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
+                print "Extracting features from dimsum16.train"
+                training_features, training_labels = features.nn_features(PATH + "dimsum16.train",WINDOW, POS_WINDOW,
+                TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
                 sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features, in_mwe,
-                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, remove_target)
+                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, unk,
+                remove_target, TOKENS_PATH + "dimsum16.train_vectors", LEMMAS_PATH + "dimsum16.train_vectors",
+                uni_skip, bi_skip)
             elif sample == 1:
-                training_features, training_labels = features.nn_features(PATH + "fold_test",int(WINDOW),DIM,
-                tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
+                print "Extracting features from fold_test"
+                training_features, training_labels = features.nn_features(PATH + "fold_test", WINDOW, POS_WINDOW,
+                TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
                 sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features, in_mwe,
-                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, remove_target,
-                PATH + "tokens/" + "fold_test_vectors", PATH + "lemmas/" + "fold_test_vectors")
+                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, unk,
+                remove_target, TOKENS_PATH + "fold_test_vectors", LEMMAS_PATH + "fold_test_vectors", uni_skip, bi_skip)
             else:
-                training_features, training_labels = features.nn_features(PATH + "fold_" + str(i+1) + str(j+1) + "_train",int(WINDOW),
-                 DIM, tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features,
-                 pos_features, sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features,
-                 in_mwe, tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec,
-                remove_target, PATH + "tokens/" + "fold_" + str(i+1) + str(j+1) + "_train_vectors",
-                PATH + "lemmas/" + "fold_" + str(i+1) + str(j+1) + "_train_vectors")
+                print "Extracting features from fold_" + str(i+1) + str(j+1) + "_train"
+                training_features, training_labels = features.nn_features(PATH + "fold_" + str(i+1) + str(j+1) + "_train",
+                WINDOW, POS_WINDOW, TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features,
+                token_features, lemma_features, pos_features, sub_token_lemma, context, con_win, avg_tokens, avg_lemmas,
+                normalize, debug_features, in_mwe, tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg,
+                sentence_embedding, gen_vec, unk, remove_target, TOKENS_PATH + "fold_" + str(i+1) + str(j+1) + "_train_vectors",
+                LEMMAS_PATH + "fold_" + str(i+1) + str(j+1) + "_train_vectors", uni_skip, bi_skip)
             print "Extracting validation data..."
             if test == 1:
-                validation_features, validation_labels = features.nn_features(PATH + "dimsum16.test.blind",int(WINDOW),
-                DIM, tag_set, model,1, ngram, binary_transitions, tag_features, token_features, lemma_features,
-                 pos_features, sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features,
-                 in_mwe, tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec,
-                                                                              remove_target)
-            elif sample == 1:
-                training_features, training_labels = features.nn_features(PATH + "fold_test",int(WINDOW),DIM,
-                tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
+                print "Extracting features from dimsum16.test.blind"
+                validation_features, validation_labels = features.nn_features(PATH + "dimsum16.test.blind", WINDOW, POS_WINDOW,
+                TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
                 sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features, in_mwe,
-                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, remove_target,
-                PATH + "tokens/" + "fold_test_vectors", PATH + "lemmas/" + "fold_test_vectors")
+                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, unk,
+                remove_target, TOKENS_PATH + "dimsum16.test.blind_vectors", LEMMAS_PATH + "dimsum16.test.blind_vectors",
+                uni_skip, bi_skip)
+            elif sample == 1:
+                print "Extracting features from fold_test"
+                validation_features, validation_labels  = features.nn_features(PATH + "fold_test", WINDOW, POS_WINDOW,
+                TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features, token_features, lemma_features, pos_features,
+                sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features, in_mwe,
+                tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec, unk,
+                remove_target, TOKENS_PATH + "fold_test_vectors", LEMMAS_PATH + "fold_test_vectors", uni_skip, bi_skip)
             else:
-                validation_features, validation_labels = features.nn_features(PATH + "fold_" + str(i+1) + str(j+1) + "_test",int(WINDOW),
-                DIM, tag_set, model,1, ngram, binary_transitions, tag_features, token_features, lemma_features,
-                 pos_features, sub_token_lemma, context, con_win, avg_tokens, avg_lemmas, normalize, debug_features,
-                 in_mwe, tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg, sentence_embedding, gen_vec,
-                 remove_target, PATH + "tokens/" + "fold_" + str(i+1) + str(j+1) + "_train_vectors",
-                PATH + "lemmas/" + "fold_" + str(i+1) + str(j+1) + "_train_vectors")
+                print "Extracting features from fold_" + str(i + 1) + str(j + 1) + "_test"
+                validation_features, validation_labels = features.nn_features(PATH + "fold_" + str(i+1) + str(j+1) + "_test",
+                WINDOW, POS_WINDOW, TAG_WINDOW, MWE_WINDOW, DIM, tag_set, model,0, ngram, binary_transitions, tag_features,
+                token_features, lemma_features, pos_features, sub_token_lemma, context, con_win, avg_tokens, avg_lemmas,
+                normalize, debug_features, in_mwe, tag_distribution, separate_lexicons,  pos_tags, emission_arr, reg,
+                sentence_embedding, gen_vec, unk, remove_target, TOKENS_PATH + "fold_" + str(i+1) + str(j+1) + "_train_vectors",
+                LEMMAS_PATH + "fold_" + str(i+1) + str(j+1) + "_train_vectors", uni_skip, bi_skip)
             print "No of training instances: " + str(training_features.__len__())
             print "No of validation instances: " + str(validation_features.__len__())
             scores3_train = np.zeros([repetitions,max_iter])
@@ -984,9 +1116,17 @@ if __name__ == '__main__':
                 leg3.append('rep_' + str(rep) + '_train')
                 leg3.append('rep_' + str(rep) + '_val')
                 if test == 1:
-                    train_score, val_score = train_NN(training_features,training_labels,validation_features,validation_labels,tag_set.__len__(),cost_function, learning_rate,max_iter,predict, rho, PATH + "dimsum16.test.blind",hidden)
+                    train_score, val_score = train_NN(training_features,training_labels,validation_features,
+                    validation_labels,tag_set.__len__(),cost_function, learning_rate,max_iter,predict, rho,
+                    batch_size, PATH + "dimsum16.test.blind", model, hidden)
+                elif sample == 1:
+                    train_score, val_score = train_NN(training_features, training_labels, validation_features,
+                    validation_labels, tag_set.__len__(), cost_function, learning_rate, max_iter, predict, rho,
+                    batch_size, PATH + "fold_test", model, hidden)
                 else:
-                    train_score, val_score = train_NN(training_features,training_labels,validation_features,validation_labels,tag_set.__len__(),cost_function,learning_rate,max_iter,predict, rho, PATH + "fold_" + str(i+1) + str(j+1) + "_test", hidden)
+                    train_score, val_score = train_NN(training_features,training_labels,validation_features,
+                    validation_labels,tag_set.__len__(),cost_function,learning_rate,max_iter,predict, rho,
+                    batch_size, PATH + "fold_" + str(i+1) + str(j+1) + "_test", model, hidden)
                 scores3_train[rep] += train_score
                 scores3_val[rep] += val_score
                 #flag3 = plot_scores(index,scores3_train[rep],scores3_val[rep],100*i + 10*j + 3,leg3,flag3)
