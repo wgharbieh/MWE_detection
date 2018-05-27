@@ -9,6 +9,40 @@ def confusion_stats(gold, prediction, tag_set):
     #print matrix
     return matrix
 
+
+def get_improvement(dict):
+    correct_tags = {}
+    incorrect_tags = {}
+    for element in dict:
+        temp_list = dict[element]
+        standard = 0
+        correct = 0
+        incorrect = 0
+        for pair in temp_list:
+            gold = pair[0]
+            pred = pair[1]
+            if standard == 0:
+                standard = gold
+            if gold != standard:
+                correct = 0
+                incorrect = 0
+                break
+            else:
+                if gold == pred:
+                    correct += 1
+                else:
+                    incorrect += 1
+        if correct_tags.__contains__(standard):
+            correct_tags[standard] += correct
+        else:
+            correct_tags[standard] = correct
+        if incorrect_tags.__contains__(standard):
+            incorrect_tags[standard] += incorrect
+        else:
+            incorrect_tags[standard] = incorrect
+    return correct_tags, incorrect_tags
+
+
 ################################################################################################
 
 def error_stats(arrays, top_k, labels, predictions):
@@ -107,7 +141,7 @@ def stats_by_percentage(arrays, top_k, cutoff, labels, predictions):
         for element in intermediate_result:
             print element
         print ""
-        
+
 ################################################################################################
 
 def get_outcome(word,feature):
@@ -383,7 +417,7 @@ def analyze_window_by_precentage(arrays, top_k, cutoff, window, labels, predicti
         start = window
         end = 0
     for i in range(0,labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
@@ -432,12 +466,15 @@ def analyze_window_by_precentage(arrays, top_k, cutoff, window, labels, predicti
         for element in intermediate_result:
             print element
         print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
 
 
-def analyze_window(arrays, top_k, cutoff, window, labels, predictions):
+def analyze_window(arrays, top_k, window, labels, predictions):
     assert labels.__len__() == predictions.__len__()
-    assert arrays.__len__() == cutoff.__len__()
-    assert top_k.__len__() == cutoff.__len__()
+    assert arrays.__len__() == top_k.__len__()
     results = []
     wrong = []
     for i in range(0, arrays.__len__()):
@@ -449,7 +486,7 @@ def analyze_window(arrays, top_k, cutoff, window, labels, predictions):
         start = window
         end = 0
     for i in range(0, labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
@@ -483,6 +520,10 @@ def analyze_window(arrays, top_k, cutoff, window, labels, predictions):
                 intermediate_result.append((key, values))
         for element in intermediate_result:
             print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
         print ""
 
 ###############################################################################################3
@@ -499,12 +540,12 @@ def analyze_ngrams_by_precentage(arrays, top_k, cutoff, window, labels, predicti
         wrong.append({})
         correct.append({})
     start = 0
-    end = window + 1
+    end = window
     if window < 0:
-        start = window
+        start = window + 1
         end = 1
     for i in range(0, labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
@@ -553,11 +594,14 @@ def analyze_ngrams_by_precentage(arrays, top_k, cutoff, window, labels, predicti
         for element in intermediate_result:
             print element
         print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
 
-def analyze_ngrams(arrays, top_k, cutoff, window, labels, predictions):
+def analyze_ngrams(arrays, top_k, window, labels, predictions):
     assert labels.__len__() == predictions.__len__()
-    assert arrays.__len__() == cutoff.__len__()
-    assert top_k.__len__() == cutoff.__len__()
+    assert arrays.__len__() == top_k.__len__()
     results = []
     wrong = []
     for i in range(0, arrays.__len__()):
@@ -566,10 +610,10 @@ def analyze_ngrams(arrays, top_k, cutoff, window, labels, predictions):
     start = 0
     end = window
     if window < 0:
-        start = window
+        start = window + 1
         end = 1
     for i in range(0, labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
@@ -603,6 +647,10 @@ def analyze_ngrams(arrays, top_k, cutoff, window, labels, predictions):
                 intermediate_result.append((key, values))
         for element in intermediate_result:
             print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
         print ""
 
 ################################################################################################
@@ -621,11 +669,11 @@ def analyze_characters_by_precentage(arrays, top_k, cutoff, window, labels, pred
     start = 0
     end = window
     for i in range(0, labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
-            for j in range(0, arrays[i][ii].__len__()):
+            for j in range(0, arrays.__len__()):
                 key = ()
                 string_length = arrays[j][i][ii].__len__()
                 if window < 0:
@@ -674,11 +722,14 @@ def analyze_characters_by_precentage(arrays, top_k, cutoff, window, labels, pred
         for element in intermediate_result:
             print element
         print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
 
-def analyze_characters(arrays, top_k, cutoff, window, labels, predictions):
+def analyze_characters(arrays, top_k, window, labels, predictions):
     assert labels.__len__() == predictions.__len__()
-    assert arrays.__len__() == cutoff.__len__()
-    assert top_k.__len__() == cutoff.__len__()
+    assert top_k.__len__() == top_k.__len__()
     results = []
     wrong = []
     for i in range(0, arrays.__len__()):
@@ -687,7 +738,7 @@ def analyze_characters(arrays, top_k, cutoff, window, labels, predictions):
     start = 0
     end = window
     for i in range(0, labels.__len__()):
-        for ii in range(0, labels[0].__len__()):
+        for ii in range(0, labels[i].__len__()):
             pred = predictions[i][ii]
             gold = labels[i][ii]
             pair = (gold, pred)
@@ -725,4 +776,257 @@ def analyze_characters(arrays, top_k, cutoff, window, labels, predictions):
                 intermediate_result.append((key, values))
         for element in intermediate_result:
             print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
+
+##############################################################################################
+
+def analyze_context_by_precentage(arrays, top_k, cutoff, window, labels, predictions): #Analyze the words before and after the target word without the target word
+    assert labels.__len__() == predictions.__len__()
+    assert arrays.__len__() == cutoff.__len__()
+    assert top_k.__len__() == cutoff.__len__()
+    results = []
+    wrong = []
+    correct = []
+    for i in range(0, arrays.__len__()):
+        results.append({})
+        wrong.append({})
+        correct.append({})
+    for i in range(0, labels.__len__()):
+        for ii in range(0, labels[i].__len__()):
+            pred = predictions[i][ii]
+            gold = labels[i][ii]
+            pair = (gold, pred)
+            for j in range(0, arrays.__len__()):
+                key = ()
+                for k in range(-1*window, 0):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                for k in range(1, window + 1):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                if results[j].__contains__(key):
+                    deep_dict = results[j][key]
+                    if deep_dict.__contains__(pair):
+                        deep_dict[pair] += 1
+                    else:
+                        deep_dict[pair] = 1
+                else:
+                    results[j][key] = {pair: 1}
+                if gold != pred:
+                    if wrong[j].__contains__(key):
+                        wrong[j][key] += 1
+                    else:
+                        wrong[j][key] = 1
+                else:
+                    if correct[j].__contains__(key):
+                        correct[j][key] += 1
+                    else:
+                        correct[j][key] = 1
+    for i in range(0, arrays.__len__()):
+        intermediate_result = []
+        ratio_dict = {}
+        for key in wrong[i]:
+            wrong_count = wrong[i][key]
+            if correct[i].__contains__(key):
+                correct_count = correct[i][key]
+            else:
+                correct_count = 0
+            if wrong_count + correct_count >= cutoff[i]:
+                ratio_dict[key] = wrong_count * 1.0 / (correct_count + wrong_count)
+        sorted_dict = sorted(ratio_dict.items(), key=operator.itemgetter(1))
+        for j in range(0, top_k[i]):
+            if sorted_dict.__len__() - 1 - j >= 0:
+                key = sorted_dict[sorted_dict.__len__() - 1 - j][0]
+                values = results[i][key]
+                intermediate_result.append((key, values))
+        for element in intermediate_result:
+            print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
+
+def analyze_context(arrays, top_k, window, labels, predictions): #Analyze the words before and after the target word without the target word
+    assert labels.__len__() == predictions.__len__()
+    assert arrays.__len__() == top_k.__len__()
+    results = []
+    wrong = []
+    for i in range(0, arrays.__len__()):
+        results.append({})
+        wrong.append({})
+    start = 0
+    end = window
+    if window < 0:
+        start = window + 1
+        end = 1
+    for i in range(0, labels.__len__()):
+        for ii in range(0, labels[i].__len__()):
+            pred = predictions[i][ii]
+            gold = labels[i][ii]
+            pair = (gold, pred)
+            for j in range(0, arrays.__len__()):
+                key = ()
+                for k in range(-1*window, 0):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                for k in range(1, window + 1):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                if results[j].__contains__(key):
+                    deep_dict = results[j][key]
+                    if deep_dict.__contains__(pair):
+                        deep_dict[pair] += 1
+                    else:
+                        deep_dict[pair] = 1
+                else:
+                    results[j][key] = {pair: 1}
+                if gold != pred:
+                    if wrong[j].__contains__(key):
+                        wrong[j][key] += 1
+                    else:
+                        wrong[j][key] = 1
+    for i in range(0, arrays.__len__()):
+        intermediate_result = []
+        sorted_dict = sorted(wrong[i].items(), key=operator.itemgetter(1))
+        for j in range(0, top_k[i]):
+            if sorted_dict.__len__() - 1 - j >= 0:
+                key = sorted_dict[sorted_dict.__len__() - 1 - j][0]
+                values = results[i][key]
+                intermediate_result.append((key, values))
+        for element in intermediate_result:
+            print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
+
+################################################################################################
+
+def analyze_group_by_precentage(arrays, top_k, cutoff, window, labels, predictions): #Analyze the words before and after the target word INCLUDING the target word
+    assert labels.__len__() == predictions.__len__()
+    assert arrays.__len__() == cutoff.__len__()
+    assert top_k.__len__() == cutoff.__len__()
+    results = []
+    wrong = []
+    correct = []
+    for i in range(0, arrays.__len__()):
+        results.append({})
+        wrong.append({})
+        correct.append({})
+    for i in range(0, labels.__len__()):
+        for ii in range(0, labels[i].__len__()):
+            pred = predictions[i][ii]
+            gold = labels[i][ii]
+            pair = (gold, pred)
+            for j in range(0, arrays.__len__()):
+                key = ()
+                for k in range(-1*window, window + 1):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                if results[j].__contains__(key):
+                    deep_dict = results[j][key]
+                    if deep_dict.__contains__(pair):
+                        deep_dict[pair] += 1
+                    else:
+                        deep_dict[pair] = 1
+                else:
+                    results[j][key] = {pair: 1}
+                if gold != pred:
+                    if wrong[j].__contains__(key):
+                        wrong[j][key] += 1
+                    else:
+                        wrong[j][key] = 1
+                else:
+                    if correct[j].__contains__(key):
+                        correct[j][key] += 1
+                    else:
+                        correct[j][key] = 1
+    for i in range(0, arrays.__len__()):
+        intermediate_result = []
+        ratio_dict = {}
+        for key in wrong[i]:
+            wrong_count = wrong[i][key]
+            if correct[i].__contains__(key):
+                correct_count = correct[i][key]
+            else:
+                correct_count = 0
+            if wrong_count + correct_count >= cutoff[i]:
+                ratio_dict[key] = wrong_count * 1.0 / (correct_count + wrong_count)
+        sorted_dict = sorted(ratio_dict.items(), key=operator.itemgetter(1))
+        for j in range(0, top_k[i]):
+            if sorted_dict.__len__() - 1 - j >= 0:
+                key = sorted_dict[sorted_dict.__len__() - 1 - j][0]
+                values = results[i][key]
+                intermediate_result.append((key, values))
+        for element in intermediate_result:
+            print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
+        print ""
+
+def analyze_group(arrays, top_k, window, labels, predictions): #Analyze the words before and after the target word INCLUDING the target word
+    assert labels.__len__() == predictions.__len__()
+    assert arrays.__len__() == top_k.__len__()
+    results = []
+    wrong = []
+    for i in range(0, arrays.__len__()):
+        results.append({})
+        wrong.append({})
+    for i in range(0, labels.__len__()):
+        for ii in range(0, labels[i].__len__()):
+            pred = predictions[i][ii]
+            gold = labels[i][ii]
+            pair = (gold, pred)
+            for j in range(0, arrays.__len__()):
+                key = ()
+                for k in range(-1*window, window + 1):
+                    if ii + k < 0 or ii + k >= arrays[j][i].__len__():
+                        key += ('NULL',)
+                    else:
+                        key += (arrays[j][i][ii + k],)
+                if results[j].__contains__(key):
+                    deep_dict = results[j][key]
+                    if deep_dict.__contains__(pair):
+                        deep_dict[pair] += 1
+                    else:
+                        deep_dict[pair] = 1
+                else:
+                    results[j][key] = {pair: 1}
+                if gold != pred:
+                    if wrong[j].__contains__(key):
+                        wrong[j][key] += 1
+                    else:
+                        wrong[j][key] = 1
+    for i in range(0, arrays.__len__()):
+        intermediate_result = []
+        sorted_dict = sorted(wrong[i].items(), key=operator.itemgetter(1))
+        for j in range(0, top_k[i]):
+            if sorted_dict.__len__() - 1 - j >= 0:
+                key = sorted_dict[sorted_dict.__len__() - 1 - j][0]
+                values = results[i][key]
+                intermediate_result.append((key, values))
+        for element in intermediate_result:
+            print element
+        print ""
+        cor_dict, incor_dict = get_improvement(results[i])
+        print "Incorrect tags"
+        print incor_dict
         print ""
